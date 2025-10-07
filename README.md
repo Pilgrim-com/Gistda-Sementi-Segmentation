@@ -1,16 +1,14 @@
-## Graph Reasoned Multi-Scale Road Segmentation in Remote Sensing Imagery
+## GISTDA Semantic Segmentation - Road Extraction from Satellite Imagery
 
-:rocket: Presented at the IEEE International Geoscience and Remote Sensing Symposium (IGARSS) 2023 Conference in Pasadena, California, USA :rocket:
+Deep learning models for road segmentation in remote sensing imagery, including U-Net based architecture (ConvNeXt-UPerNet-DGCN) and DeepLabV3 with multi-task learning for road segmentation and orientation prediction.
 
-### Example: Rapid City-Scale Road Network Extraction (Las Vegas)
+### About This Project
 
-Road network predictions on a small region of Las Vegas with geo-referenced (1300x1300x3) RGB images from ArcGIS World Imagery Map Service (ground resolution of 0.3 m<sup>2</sup> / pixel) using QGIS. Image below is (9x6) grid.
+This repository contains implementations of multiple architectures for road extraction:
+- **U-Net Architecture**: ConvNeXt-UPerNet with Dual Graph Convolutional Networks (DGCN) and Multi-Task Learning (MTL)
+- **DeepLabV3**: With MTL Adapter for road segmentation and orientation
 
-![front](https://github.com/aavek/Satellite-Image-Road-Segmentation/assets/93454699/c7405406-5181-4c04-a704-4009a98792e4)
-
-<p align="center"> Areal inference speed: ~650km<sup>2</sup> / hour / GPU</p>
-
-Paper link: [Graph Reasoned Multi-Scale Road Segmentation in Remote Sensing Imagery](https://ieeexplore.ieee.org/document/10281660)
+Based on research presented at IEEE IGARSS 2023. Paper: [Graph Reasoned Multi-Scale Road Segmentation in Remote Sensing Imagery](https://ieeexplore.ieee.org/document/10281660)
 
 ## How to Run
 
@@ -48,26 +46,52 @@ Cropped Image Disk Space:<br> DeepGlobe ~= 24.3GB<br> MassachusettsRoads ~= 9.71
 ### 3. Training
 
 All training was performed on a single NVIDIA GeForce RTX 2080 Ti (11GB VRAM).<br>
-See the ```cfg.json``` file to ensure that the training settings are appropriate for your rig. 
-  
-To train the model from scratch, run:<br>
-```python train.py -m ConvNeXt_UPerNet_DGCN_MTL -d <dataset_name> -e <experiment_name>```<br>
+See the ```cfg.json``` file to ensure that the training settings are appropriate for your rig.
+
+#### Training with U-Net (ConvNeXt-UPerNet-DGCN-MTL)
+
+To train the U-Net model from scratch:<br>
+```python train_unet.py -m ConvNeXt_UPerNet_DGCN_MTL -d <dataset_name> -e <experiment_name>```<br>
 <details>
 <summary>Example</summary>
-python train.py -m ConvNeXt_UPerNet_DGCN_MTL -d MassachusettsRoads -e MassachusettsRoads
+python train_unet.py -m ConvNeXt_UPerNet_DGCN_MTL -d DeepGlobe -e DeepGlobe_unet
 </details>
-  
-To resume the training of a model:<br>
-```python train.py -m ConvNeXt_UPerNet_DGCN_MTL -d <dataset_name> -e <experiment_name> -r ./Experiments/<experiment_name>/model_best.pth.tar```
 
-To fine-tune a pre-trained model on a new dataset:<br> 
-```python train.py -m ConvNeXt_UPerNet_DGCN_MTL -d <dataset_name> -e <experiment_name> -rd ./Experiments/<experiment_name>/model_best.pth.tar```<br><br>
+#### Training with DeepLabV3
+
+To train the DeepLabV3 model from scratch:<br>
+```python train_deeplabv3.py -m DeepLabV3_MTL_Adapter -d <dataset_name> -e <experiment_name>```<br>
+<details>
+<summary>Example</summary>
+python train_deeplabv3.py -m DeepLabV3_MTL_Adapter -d DeepGlobe -e DeepGlobe_deeplab
+</details>
+
+#### Resume or Fine-tune Training
+
+To resume training:<br>
+```python train_unet.py -m ConvNeXt_UPerNet_DGCN_MTL -d <dataset_name> -e <experiment_name> -r ./Experiments/<experiment_name>/model_best.pth.tar```
+
+To fine-tune a pre-trained model on a new dataset:<br>
+```python train_unet.py -m ConvNeXt_UPerNet_DGCN_MTL -d <dataset_name> -e <experiment_name> -rd ./Experiments/<experiment_name>/model_best.pth.tar```<br><br>
 For example, one can use pre-trained MassachusettsRoads model weights to start training for DeepGlobe or Spacenet to speed up convergence.
+
+#### Configuration
+
+DeepLabV3 specific settings in `cfg.json`:
+- `deeplab_backbone`: Backbone architecture (default: "resnet101")
+- `deeplab_pretrained_backbone`: Use ImageNet pre-trained weights (default: true)
+- `deeplab_output_stride`: Output stride for DeepLabV3 (default: 16)
+- `use_combined_loss`: Enable combined segmentation and orientation loss (default: true)
 
 ### 4. Evaluation
 ```Backup your log files (*.txt) in ./Experiments/<experiment_name>/```<br><br>
-Once training ends (Default: 120 epochs), to evaluate Precision, Recall, F1, [IoU(relaxed)](https://www.cs.toronto.edu/~vmnih/docs/Mnih_Volodymyr_PhD_Thesis.pdf) [IoU(accurate)](https://www.cs.toronto.edu/~vmnih/docs/Mnih_Volodymyr_PhD_Thesis.pdf) metrics run:<br>
+Once training ends (Default: 100 epochs in cfg.json), to evaluate Precision, Recall, F1, [IoU(relaxed)](https://www.cs.toronto.edu/~vmnih/docs/Mnih_Volodymyr_PhD_Thesis.pdf) [IoU(accurate)](https://www.cs.toronto.edu/~vmnih/docs/Mnih_Volodymyr_PhD_Thesis.pdf) metrics run:<br>
+
+For U-Net model:<br>
 ```python eval.py -m ConvNeXt_UPerNet_DGCN_MTL -d <dataset_name> -e <experiment_name> -r ./Experiments/<experiment_name>/model_best.pth.tar```
+
+For DeepLabV3 model:<br>
+```python eval.py -m DeepLabV3_MTL_Adapter -d <dataset_name> -e <experiment_name> -r ./Experiments/<experiment_name>/model_best.pth.tar```
 
 The evaluation script uses elements from the utils folder of [[3]](https://github.com/anilbatra2185/road_connectivity/tree/master/utils).
   
@@ -75,12 +99,33 @@ This will create a ```./Experiments/<experiment_name>/images_eval``` folder with
   
 To evaluate the [APLS](https://github.com/avanetten/apls) metric refer to this [link](https://github.com/anilbatra2185/road_connectivity/issues/13).
   
-### 5. Results
-You may also refer to this [link](https://github.com/aavek/Satellite-Image-Road-Segmentation/blob/main/docs/IGARSS_Vekinis_2023_ea.pdf) for better viewing.
+### 5. Models Overview
+
+This repository provides two main architectures:
+
+**1. ConvNeXt-UPerNet-DGCN-MTL (U-Net based)**
+- ConvNeXt backbone for feature extraction
+- UPerNet decoder for multi-scale feature aggregation
+- Dual Graph Convolutional Network for spatial reasoning
+- Multi-task learning for road segmentation and orientation
+
+**2. DeepLabV3-MTL-Adapter**
+- DeepLabV3 with configurable backbone (default: ResNet101)
+- MTL Adapter for multi-task learning
+- Atrous Spatial Pyramid Pooling (ASPP)
+- Combined loss for segmentation and orientation prediction
+
+### 6. Datasets Supported
+- **DeepGlobe**: Road extraction dataset from satellite imagery
+- **MassachusettsRoads**: Road dataset from aerial imagery
+- **SpaceNet**: Multi-city road network dataset
+
+### 7. Original Research Results
+Results from the original U-Net implementation. You may also refer to this [link](https://github.com/aavek/Satellite-Image-Road-Segmentation/blob/main/docs/IGARSS_Vekinis_2023_ea.pdf) for better viewing.
 ![results](https://user-images.githubusercontent.com/93454699/220936233-9be5869d-caf5-4723-af48-3a78bba6d91c.png)
 
-<details> 
-<summary>  6. REFERENCES </summary>
+<details>
+<summary>  8. REFERENCES </summary>
 [1] N. Weir et al., “SpaceNet MVOI: A Multi-View Overhead Imagery Dataset”, 2019 IEEE/CVF International
 Conference on Computer Vision (ICCV), 2019, pp. 992-1001, doi: 10.1109/ICCV.2019.00108.<br><br>
 [2] I. Demir et al., “DeepGlobe 2018: A Challenge to Parse the Earth through Satellite Images”, 2018 IEEE/CVF
