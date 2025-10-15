@@ -60,3 +60,4 @@ Theos/
 # OS
 .DS_Store
 Thumbs.db
+!Experiments/U_net_round21/model_best.pth.tar
