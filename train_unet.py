@@ -57,8 +57,8 @@ def train_model(model, nGPUs, cfg, train_loss_file, valid_loss_file, train_loss_
     model.train()
     train_loss_road = 0.0
     train_loss_angle = 0.0
-    hist = np.zeros((n_RoadClasses, n_RoadClasses), dtype=np.float64)
-    hist_angles = np.zeros((n_OrientClasses, n_OrientClasses), dtype=np.float64)
+    hist = torch.zeros((n_RoadClasses, n_RoadClasses)).cuda()
+    hist_angles = torch.zeros((n_OrientClasses, n_OrientClasses)).cuda()
 
     # grad accumulation ให้สอดคล้องกับ iteration_frequency
     accum_steps = max(1, int(cfg["training_settings"].get("iteration_frequency", 1)))
@@ -77,15 +77,34 @@ def train_model(model, nGPUs, cfg, train_loss_file, valid_loss_file, train_loss_
         # forward
         pred_road_list, pred_orient_list = model(imageBGRcropped)
 
-        # ----- Road CE Loss (ทุกสเกล) -----
-        road_loss = segmentation_loss(pred_road_list[0], scaled_target_road_label[0])
-        for r in range(1, len(pred_road_list)):
-            road_loss += segmentation_loss(pred_road_list[r], scaled_target_road_label[r])
+        # Auto-resize if mismatch (Fix for LinkNet/others outputting 511x511 instead of 512x512)
+        # Also handles Deep Supervision mismatch (Model outputs > Dataset labels)
+        for k in range(len(pred_road_list)):
+            # Use the last available label if we don't have enough scales
+            label_idx = k if k < len(scaled_target_road_label) else -1
+            target_shape = scaled_target_road_label[label_idx].shape[-2:]
+            
+            if pred_road_list[k].shape[-2:] != target_shape:
+                pred_road_list[k] = F.interpolate(pred_road_list[k], size=target_shape, mode='bilinear', align_corners=False)
+
+        for k in range(len(pred_orient_list)):
+            label_idx = k if k < len(scaled_target_orientation_class) else -1
+            target_shape = scaled_target_orientation_class[label_idx].shape[-2:]
+            
+            if pred_orient_list[k].shape[-2:] != target_shape:
+                pred_orient_list[k] = F.interpolate(pred_orient_list[k], size=target_shape, mode='bilinear', align_corners=False) 
+
+        # ----- Road CE/Combined Loss (ทุกสเกล) -----
+        road_loss = 0
+        for r in range(len(pred_road_list)):
+            label_idx = r if r < len(scaled_target_road_label) else -1
+            road_loss += segmentation_loss(pred_road_list[r], scaled_target_road_label[label_idx])
 
         # ----- Orientation CE Loss (ทุกสเกล) -----
-        angle_loss = orientation_loss(pred_orient_list[0], scaled_target_orientation_class[0])
-        for r in range(1, len(pred_orient_list)):
-            angle_loss += orientation_loss(pred_orient_list[r], scaled_target_orientation_class[r])
+        angle_loss = 0
+        for r in range(len(pred_orient_list)):
+            label_idx = r if r < len(scaled_target_orientation_class) else -1
+            angle_loss += orientation_loss(pred_orient_list[r], scaled_target_orientation_class[label_idx])
 
         total_loss = road_loss + ANGLE_LAMBDA * angle_loss
         (total_loss / accum_steps).backward()
@@ -110,32 +129,35 @@ def train_model(model, nGPUs, cfg, train_loss_file, valid_loss_file, train_loss_
         pred_road_arg = _shape_match_argmax(logits_road, (H, W))
         pred_angle_arg = _shape_match_argmax(logits_angle, (H, W))
 
-        hist += util.fast_hist(pred_road_arg.view(pred_road_arg.size(0), -1).cpu().numpy(),
-                               target_road.view(target_road.size(0), -1).cpu().numpy(), n_RoadClasses)
-        hist_angles += util.fast_hist(pred_angle_arg.view(pred_angle_arg.size(0), -1).cpu().numpy(),
-                                      target_angle.view(target_angle.size(0), -1).cpu().numpy(), n_OrientClasses)
+        hist += util.fast_hist_torch(pred_road_arg.view(pred_road_arg.size(0), -1),target_road.view(target_road.size(0), -1), n_RoadClasses)
+        hist_angles += util.fast_hist_torch(pred_angle_arg.view(pred_angle_arg.size(0), -1),target_angle.view(target_angle.size(0), -1), n_OrientClasses)
 
-        # ----- progress bar -----
-        p_accu, miou, road_iou, fwacc = util.performMetrics(
-            train_loss_file, valid_loss_file, Epoch, hist,
-            train_loss_road/(i+1), train_loss_angle/(i+1),
-            is_train=True, write=True
-        )
-        p_accu_angle, miou_angle, fwacc_angle = util.performAngleMetrics(
-            train_loss_angle_file, valid_loss_angle_file, Epoch, hist_angles,
-            is_train=True, write=True
-        )
-        viz_util.progress_bar(
-            i, len(train_loader),
-            "Loss: %.6f | VecLoss: %.6f | road miou: %.4f%%(%.4f%%) | angle miou: %.4f%% "
-            % (train_loss_road/(i+1), train_loss_angle/(i+1), miou, road_iou, miou_angle)
-        )
+        # ----- progress bar (Reduce frequency to every 50 steps) -----
+        if (i + 1) % 50 == 0 or (i + 1) == len(train_loader):
+            # Move hist to CPU only for logging
+            curr_hist = hist.cpu().numpy()
+            curr_hist_angles = hist_angles.cpu().numpy()
+
+            p_accu, miou, road_iou, fwacc = util.performMetrics(
+                train_loss_file, valid_loss_file, Epoch, curr_hist,
+                train_loss_road/(i+1), train_loss_angle/(i+1),
+                is_train=True, write=True
+            )
+            p_accu_angle, miou_angle, fwacc_angle = util.performAngleMetrics(
+                train_loss_angle_file, valid_loss_angle_file, Epoch, curr_hist_angles,
+                is_train=True, write=True
+            )
+            viz_util.progress_bar(
+                i, len(train_loader),
+                "Loss: %.6f | VecLoss: %.6f | road miou: %.4f%%(%.4f%%) | angle miou: %.4f%% "
+                % (train_loss_road/(i+1), train_loss_angle/(i+1), miou, road_iou, miou_angle)
+            )
 
         # ----- debug: สัดส่วนถนนใน GT/ทำนาย -----
-        if i % 100 == 0:
-            gt_pos = (target_road == ROAD_CLASS_INDEX).float().mean().item()
-            pd_pos = (pred_road_arg == ROAD_CLASS_INDEX).float().mean().item()
-            print(f"[debug] gt_road%={gt_pos:.4f}, pred_road%={pd_pos:.4f}")
+        # if i % 100 == 0:
+        #     gt_pos = (target_road == ROAD_CLASS_INDEX).float().mean().item()
+        #     pd_pos = (pred_road_arg == ROAD_CLASS_INDEX).float().mean().item()
+        #     print(f"[debug] gt_road%={gt_pos:.4f}, pred_road%={pd_pos:.4f}")
 
         # cleanup refs
         del (pred_road_list, pred_orient_list,
@@ -147,11 +169,11 @@ def train_model(model, nGPUs, cfg, train_loss_file, valid_loss_file, train_loss_
              scaled_target_orientation_class)
 
     util.performMetrics(train_loss_file, valid_loss_file,
-                        Epoch, hist,
+                        Epoch, hist.cpu().numpy(),
                         train_loss_road / len(train_loader),
                         train_loss_angle / len(train_loader),
                         write=True)
-    util.performAngleMetrics(train_loss_angle_file, valid_loss_angle_file, Epoch, hist_angles, write=True)
+    util.performAngleMetrics(train_loss_angle_file, valid_loss_angle_file, Epoch, hist_angles.cpu().numpy(), write=True)
 
 
 def validate_model(ExperimentDirectory, model, dataset_name, nGPUs, cfg, train_loss_file, valid_loss_file, train_loss_angle_file, valid_loss_angle_file,
@@ -162,8 +184,8 @@ def validate_model(ExperimentDirectory, model, dataset_name, nGPUs, cfg, train_l
     model.eval()
     valid_loss_road = 0.0
     valid_loss_angle = 0.0
-    hist = np.zeros((n_RoadClasses, n_RoadClasses), dtype=np.float64)
-    hist_angles = np.zeros((n_OrientClasses, n_OrientClasses), dtype=np.float64)
+    hist = torch.zeros((n_RoadClasses, n_RoadClasses)).cuda()
+    hist_angles = torch.zeros((n_OrientClasses, n_OrientClasses)).cuda()
 
     with torch.no_grad():
         for i, ImageLabelData in enumerate(valid_loader, 0):
@@ -176,21 +198,33 @@ def validate_model(ExperimentDirectory, model, dataset_name, nGPUs, cfg, train_l
 
             pred_road_list, pred_orient_list = model(imageBGR)
 
-            # เฉพาะ Spacenet: resize prediction ให้ตรงขนาด GT ในแต่ละสเกล
-            if dataset_name == "Spacenet":
-                for k in range(len(pred_road_list)):
-                    tgt_sz = scaled_target_road_label[k].shape[-2:]
+            # Auto-resize prediction to match GT size (Generalized for all datasets/models)
+            # This fixes inconsistencies like LinkNet outputting 511 vs 512
+            # Also handles Deep Supervision mismatch (Model outputs > Dataset labels)
+            for k in range(len(pred_road_list)):
+                label_idx = k if k < len(scaled_target_road_label) else -1
+                tgt_sz = scaled_target_road_label[label_idx].shape[-2:]
+                
+                if pred_road_list[k].shape[-2:] != tgt_sz:
                     pred_road_list[k] = F.interpolate(pred_road_list[k], size=tgt_sz, mode='bilinear', align_corners=False)
+                                                                                                                                    
+            for k in range(len(pred_orient_list)):
+                label_idx = k if k < len(scaled_target_orientation_class) else -1
+                tgt_sz = scaled_target_orientation_class[label_idx].shape[-2:]
+                
+                if pred_orient_list[k].shape[-2:] != tgt_sz:
                     pred_orient_list[k] = F.interpolate(pred_orient_list[k], size=tgt_sz, mode='bilinear', align_corners=False)
 
             # loss รวมทุกสเกล
-            road_loss = segmentation_loss(pred_road_list[0], scaled_target_road_label[0])
-            for r in range(1, len(pred_road_list)):
-                road_loss += segmentation_loss(pred_road_list[r], scaled_target_road_label[r])
+            road_loss = 0
+            for r in range(len(pred_road_list)):
+                label_idx = r if r < len(scaled_target_road_label) else -1
+                road_loss += segmentation_loss(pred_road_list[r], scaled_target_road_label[label_idx])
 
-            angle_loss = orientation_loss(pred_orient_list[0], scaled_target_orientation_class[0])
-            for r in range(1, len(pred_orient_list)):
-                angle_loss += orientation_loss(pred_orient_list[r], scaled_target_orientation_class[r])
+            angle_loss = 0
+            for r in range(len(pred_orient_list)):
+                label_idx = r if r < len(scaled_target_orientation_class) else -1
+                angle_loss += orientation_loss(pred_orient_list[r], scaled_target_orientation_class[label_idx])
 
             valid_loss_road += road_loss.item()
             valid_loss_angle += angle_loss.item()
@@ -207,20 +241,24 @@ def validate_model(ExperimentDirectory, model, dataset_name, nGPUs, cfg, train_l
             pred_angle_arg = _shape_match_argmax(logits_angle, (H, W))
             prob1 = _shape_match_prob1(logits_road, (H, W))
 
-            hist += util.fast_hist(pred_road_arg.view(pred_road_arg.size(0), -1).cpu().numpy(),
-                                   target_road.view(target_road.size(0), -1).cpu().numpy(), n_RoadClasses)
-            hist_angles += util.fast_hist(pred_angle_arg.view(pred_angle_arg.size(0), -1).cpu().numpy(),
-                                          target_angle.view(target_angle.size(0), -1).cpu().numpy(), n_OrientClasses)
+            hist += util.fast_hist_torch(pred_road_arg.view(pred_road_arg.size(0), -1),target_road.view(target_road.size(0), -1), n_RoadClasses)
+            hist_angles += util.fast_hist_torch(pred_angle_arg.view(pred_angle_arg.size(0), -1),target_angle.view(target_angle.size(0), -1), n_OrientClasses)
 
-            p_accu, miou, road_iou, fwacc = util.performMetrics(
-                train_loss_file, valid_loss_file, Epoch, hist,
-                valid_loss_road/(i+1), valid_loss_angle/(i+1), is_train=False, write=True)
-            p_accu_angle, miou_angle, fwacc_angle = util.performAngleMetrics(
-                train_loss_angle_file, valid_loss_angle_file, Epoch, hist_angles, is_train=False, write=True)
+            # ----- progress bar (Reduce frequency to every 10 steps for validation) -----
+            if (i + 1) % 10 == 0 or (i + 1) == len(valid_loader):
+                # Move hist to CPU only for logging
+                curr_hist = hist.cpu().numpy()
+                curr_hist_angles = hist_angles.cpu().numpy()
 
-            viz_util.progress_bar(i, len(valid_loader),
-                "Loss: %.6f | VecLoss: %.6f | road miou: %.4f%%(%.4f%%) | angle miou: %.4f%% "
-                % (valid_loss_road/(i+1), valid_loss_angle/(i+1), miou, road_iou, miou_angle))
+                p_accu, miou, road_iou, fwacc = util.performMetrics(
+                    train_loss_file, valid_loss_file, Epoch, curr_hist,
+                    valid_loss_road/(i+1), valid_loss_angle/(i+1), is_train=False, write=True)
+                p_accu_angle, miou_angle, fwacc_angle = util.performAngleMetrics(
+                    train_loss_angle_file, valid_loss_angle_file, Epoch, curr_hist_angles, is_train=False, write=True)
+
+                viz_util.progress_bar(i, len(valid_loader),
+                    "Loss: %.6f | VecLoss: %.6f | road miou: %.4f%%(%.4f%%) | angle miou: %.4f%% "
+                    % (valid_loss_road/(i+1), valid_loss_angle/(i+1), miou, road_iou, miou_angle))
 
             # save preview
             if i % 10 == 0 or i == len(valid_loader) - 1:
@@ -241,10 +279,10 @@ def validate_model(ExperimentDirectory, model, dataset_name, nGPUs, cfg, train_l
                  scaled_target_road_label, scaled_target_orientation_class)
 
     accuracy, miou, road_iou, fwacc = util.performMetrics(
-        train_loss_file, valid_loss_file, Epoch, hist,
+        train_loss_file, valid_loss_file, Epoch, hist.cpu().numpy(),
         valid_loss_road / len(valid_loader), valid_loss_angle / len(valid_loader),
         is_train=False, write=True)
-    util.performAngleMetrics(train_loss_angle_file, valid_loss_angle_file, Epoch, hist_angles, is_train=False, write=True)
+    util.performAngleMetrics(train_loss_angle_file, valid_loss_angle_file, Epoch, hist_angles.cpu().numpy(), is_train=False, write=True)
 
     global best_accuracy, best_miou, epochs_without_improvement, early_stop_patience
     if miou > best_miou:
@@ -266,14 +304,23 @@ def main():
     Epochs = cfg["training_settings"]["epochs"]
 
     # Models
+    # Dynamic loading: expects the file "Models/MyModel.py" to contain a class "MyModel"
+    import importlib
     ModelFolderList = os.listdir(cfg["Models"]["base_dir"])
-    ModelNames = [os.path.splitext(x)[0] for x in ModelFolderList if (os.path.splitext(x)[1] == ".py")]
-    ModelNames.sort(key=str.lower)
-    ModuleNames = ["ConvNeXt_UPerNet_DGCN_MTL"]
-    ModuleNames.sort(key=str.lower)
-    ModelModuleNames = list(map('.'.join, zip(ModelNames, ModuleNames)))
-    ModuleList = [eval(x) for x in ModelModuleNames]
-    ChosenModel = dict(zip(ModelNames, ModuleList))
+    ModelNames = [os.path.splitext(x)[0] for x in ModelFolderList if x.endswith(".py") and not x.startswith("__")]
+    ChosenModel = {}
+    for model_name in ModelNames:
+        try:
+            module = importlib.import_module(f"Models.{model_name}")
+            # Try to get the class with the same name as the file
+            if hasattr(module, model_name):
+                ChosenModel[model_name] = getattr(module, model_name)
+            else:
+                # Fallback or specific mapping (if needed in future)
+                print(f"[Warning] Class '{model_name}' not found in Models/{model_name}.py. Skipping.")
+        except Exception as e:
+            print(f"[Error] Failed to import Models.{model_name}: {e}")
+
 
     # Datasets
     DatasetNames = os.listdir(cfg["Datasets"]["base_dir"])
@@ -381,13 +428,13 @@ def main():
                                    batch_size=cfg["training_settings"]["batch_size"],
                                    num_workers=4,
                                    shuffle=True,
-                                   pin_memory=False)
+                                   pin_memory=True)
 
     valid_loader = data.DataLoader(dataset(cfg, args.model, args.dataset, "validation_settings"),
                                    batch_size=cfg["validation_settings"]["batch_size"],
                                    num_workers=4,
                                    shuffle=False,
-                                   pin_memory=False)
+                                   pin_memory=True)
 
     n_RoadClasses = cfg["training_settings"]["roadclass"]
     n_OrientClasses = cfg["training_settings"]["orientationclass"]
@@ -472,5 +519,3 @@ if __name__=="__main__":
     epochs_without_improvement = 0
     early_stop_patience = 5  # Stop if no improvement for 5 validation checks (20 epochs at eval_freq=4)
     main()
-
-

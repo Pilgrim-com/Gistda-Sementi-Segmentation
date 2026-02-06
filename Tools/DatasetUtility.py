@@ -138,6 +138,17 @@ class DatasetPreprocessor(data.Dataset):
         self.dataset_name = dataset_name
         self.loader_type  = loader_type
         self.augment      = self.cfg[self.loader_type]["augment"]
+        
+        # Check if we need to compute orientation (very slow on CPU)
+        # If weight is 0, we can skip it
+        self.compute_orientation = True
+        try:
+             w = float(self.cfg["training_settings"].get("orientation_weight", 1.0))
+             if w <= 1e-6:
+                 self.compute_orientation = False
+                 print(f"[INFO] orientation_weight={w}, skipping expensive orientation calculation.")
+        except:
+             pass
 
         # ===== base dir ของโปรเจกต์ (โฟลเดอร์ที่มี Tools/, Models/, cfg.json) =====
         BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -196,8 +207,10 @@ class DatasetPreprocessor(data.Dataset):
                 image = image[y0:y0 + cropsize, x0:x0 + cropsize, :]
                 label = label[y0:y0 + cropsize, x0:x0 + cropsize]
         else:
-            image = cv2.resize(image, (cropsize, cropsize), interpolation=cv2.INTER_LINEAR)
-            label = cv2.resize(label, (cropsize, cropsize), interpolation=cv2.INTER_NEAREST)
+            # Check if we want original size (for sliding window evaluation)
+            if not self.cfg[self.loader_type].get("eval_original_size", False):
+                image = cv2.resize(image, (cropsize, cropsize), interpolation=cv2.INTER_LINEAR)
+                label = cv2.resize(label, (cropsize, cropsize), interpolation=cv2.INTER_NEAREST)
 
         # ---- augmentation (sync image & mask) ----
         if self.augment and (self.loader_type == "training_settings"):
@@ -383,17 +396,21 @@ class DeepGlobe(DatasetPreprocessor):
             scaled_labels.append(torch.from_numpy(lbl01))  # tensor [h,w] uint8
 
             # สร้างกราฟจาก skeleton แล้วคำนวณ bin ของมุม
-            skel = skeletonize(lbl01.astype(bool)).astype(np.uint16)
-            graph = sknw.build_sknw(skel, multi=True)
-            road_segments = []
-            for (u, v) in graph.edges():
-                for _, dat in graph[u][v].items():
-                    pts = dat["pts"]
-                    seg = np.row_stack([graph.nodes[u]["o"], pts, graph.nodes[v]["o"]])
-                    seg = LineSimp.Ramer_Douglas_Peucker(seg.tolist(), self.GraphParameters[1][i])
-                    road_segments.append(seg)
-            keypoints = LineConv.Graph_to_Keypoints(road_segments)
-            scaled_orient.append(self.CalculateAnglesFromVectorMap(keypoints, h, w))  # torch.long [h,w]
+            if self.compute_orientation:
+                skel = skeletonize(lbl01.astype(bool)).astype(np.uint16)
+                graph = sknw.build_sknw(skel, multi=True)
+                road_segments = []
+                for (u, v) in graph.edges():
+                    for _, dat in graph[u][v].items():
+                        pts = dat["pts"]
+                        seg = np.row_stack([graph.nodes[u]["o"], pts, graph.nodes[v]["o"]])
+                        seg = LineSimp.Ramer_Douglas_Peucker(seg.tolist(), self.GraphParameters[1][i])
+                        road_segments.append(seg)
+                keypoints = LineConv.Graph_to_Keypoints(road_segments)
+                scaled_orient.append(self.CalculateAnglesFromVectorMap(keypoints, h, w))  # torch.long [h,w]
+            else:
+                # Dummy orientation map (0)
+                scaled_orient.append(torch.zeros((h, w), dtype=torch.long))
 
         return image, scaled_labels, scaled_orient
 
@@ -425,16 +442,19 @@ class Spacenet(DatasetPreprocessor):
             lbl01 = (lbl > 0).astype(np.uint8)
             scaled_labels.append(torch.from_numpy(lbl01))
 
-            skel = skeletonize(lbl01.astype(bool)).astype(np.uint16)
-            graph = sknw.build_sknw(skel, multi=True)
-            road_segments = []
-            for (u, v) in graph.edges():
-                for _, dat in graph[u][v].items():
-                    pts = dat["pts"]
-                    seg = np.row_stack([graph.nodes[u]["o"], pts, graph.nodes[v]["o"]])
-                    seg = LineSimp.Ramer_Douglas_Peucker(seg.tolist(), self.GraphParameters[1][i])
-                    road_segments.append(seg)
-            keypoints = LineConv.Graph_to_Keypoints(road_segments)
-            scaled_orient.append(self.CalculateAnglesFromVectorMap(keypoints, h, w))
+            if self.compute_orientation:
+                skel = skeletonize(lbl01.astype(bool)).astype(np.uint16)
+                graph = sknw.build_sknw(skel, multi=True)
+                road_segments = []
+                for (u, v) in graph.edges():
+                    for _, dat in graph[u][v].items():
+                        pts = dat["pts"]
+                        seg = np.row_stack([graph.nodes[u]["o"], pts, graph.nodes[v]["o"]])
+                        seg = LineSimp.Ramer_Douglas_Peucker(seg.tolist(), self.GraphParameters[1][i])
+                        road_segments.append(seg)
+                keypoints = LineConv.Graph_to_Keypoints(road_segments)
+                scaled_orient.append(self.CalculateAnglesFromVectorMap(keypoints, h, w))
+            else:
+                scaled_orient.append(torch.zeros((h, w), dtype=torch.long))
 
         return image, scaled_labels, scaled_orient

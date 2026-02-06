@@ -112,6 +112,32 @@ def fast_hist(a, b, n):
     return np.bincount(n * a[k] + b[k], minlength=n ** 2).reshape(n, n)
 
 
+def fast_hist_torch(a, b, n):
+    """
+    Compute confusion matrix on GPU (torch.Tensor).
+    a (pred): [N] or [B, H, W] flattened
+    b (gt):   [N] or [B, H, W] flattened
+    n: number of classes
+    Returns a tensor of shape (n, n) on the same device.
+    """
+    # Flatten if not already
+    a = a.flatten()
+    b = b.flatten()
+
+    # Mask invalid values
+    k = (a >= 0) & (a < n)
+    a = a[k]
+    b = b[k]
+
+    # bincount equivalent
+    # n * a + b gives a unique index for each (pred, gt) pair
+    # range is 0 to n**2 - 1
+    idx = n * a + b
+    hist = torch.bincount(idx, minlength=n ** 2)
+    
+    return hist.reshape(n, n).float()
+
+
 def _safe_metrics_from_hist(hist: np.ndarray):
     """Compute metrics safely (avoid divide-by-zero, ignore absent classes).
 
@@ -333,17 +359,15 @@ def savePredictedProbStiched(real, gt, predicted, predicted_prob, pred_affinity=
         pred_tiles.append(predicted_)
         pred_prob_tiles.append(predicted_prob_)
 
-    firstrow = np.concatenate((real_tiles[0], real_tiles[1], gt_tiles[0], gt_tiles[1]), axis=1)
-    secondrow = np.concatenate((real_tiles[2], real_tiles[3], gt_tiles[2], gt_tiles[3]), axis=1)
-    thirdrow = np.concatenate((pred_tiles[0], pred_tiles[1], pred_prob_tiles[0], pred_prob_tiles[1]), axis=1)
-    fourthrow = np.concatenate((pred_tiles[2], pred_tiles[3], pred_prob_tiles[2], pred_prob_tiles[3]), axis=1)
+    rows = []
+    for i in range(b):
+        # Concatenate: Real | GT | Pred | PredProb
+        row = np.concatenate((real_tiles[i], gt_tiles[i], pred_tiles[i], pred_prob_tiles[i]), axis=1)
+        rows.append(row)
 
-    grid.append(firstrow)
-    grid.append(secondrow)
-    grid.append(thirdrow)
-    grid.append(fourthrow)
-
-    cv2.imwrite(image_name, np.array(grid).reshape(b * h, 4 * w, 3))
+    # Stack rows vertically
+    final_image = np.concatenate(rows, axis=0)
+    cv2.imwrite(image_name, final_image)
 
 
 def get_relaxed_precision(a, b, buffer):

@@ -6,7 +6,7 @@ Deep learning models for road segmentation in remote sensing imagery, including 
 
 This repository contains implementations of multiple architectures for road extraction:
 - **U-Net Architecture**: ConvNeXt-UPerNet with Dual Graph Convolutional Networks (DGCN) and Multi-Task Learning (MTL)
-- **DeepLabV3**: With MTL Adapter for road segmentation and orientation
+- **U-Net Architecture**: ConvNeXt-UPerNet with Dual Graph Convolutional Networks (DGCN) and Multi-Task Learning (MTL)
 
 Based on research presented at IEEE IGARSS 2023. Paper: [Graph Reasoned Multi-Scale Road Segmentation in Remote Sensing Imagery](https://ieeexplore.ieee.org/document/10281660)
 
@@ -57,14 +57,7 @@ To train the U-Net model from scratch:<br>
 python train_unet.py -m ConvNeXt_UPerNet_DGCN_MTL -d DeepGlobe -e DeepGlobe_unet
 </details>
 
-#### Training with DeepLabV3
 
-To train the DeepLabV3 model from scratch:<br>
-```python train_deeplabv3.py -m DeepLabV3_MTL_Adapter -d <dataset_name> -e <experiment_name>```<br>
-<details>
-<summary>Example</summary>
-python train_deeplabv3.py -m DeepLabV3_MTL_Adapter -d DeepGlobe -e DeepGlobe_deeplab
-</details>
 
 #### Resume or Fine-tune Training
 
@@ -77,11 +70,7 @@ For example, one can use pre-trained MassachusettsRoads model weights to start t
 
 #### Configuration
 
-DeepLabV3 specific settings in `cfg.json`:
-- `deeplab_backbone`: Backbone architecture (default: "resnet101")
-- `deeplab_pretrained_backbone`: Use ImageNet pre-trained weights (default: true)
-- `deeplab_output_stride`: Output stride for DeepLabV3 (default: 16)
-- `use_combined_loss`: Enable combined segmentation and orientation loss (default: true)
+
 
 ### 4. Evaluation
 ```Backup your log files (*.txt) in ./Experiments/<experiment_name>/```<br><br>
@@ -90,8 +79,7 @@ Once training ends (Default: 100 epochs in cfg.json), to evaluate Precision, Rec
 For U-Net model:<br>
 ```python eval.py -m ConvNeXt_UPerNet_DGCN_MTL -d <dataset_name> -e <experiment_name> -r ./Experiments/<experiment_name>/model_best.pth.tar```
 
-For DeepLabV3 model:<br>
-```python eval.py -m DeepLabV3_MTL_Adapter -d <dataset_name> -e <experiment_name> -r ./Experiments/<experiment_name>/model_best.pth.tar```
+
 
 The evaluation script uses elements from the utils folder of [[3]](https://github.com/anilbatra2185/road_connectivity/tree/master/utils).
   
@@ -109,11 +97,7 @@ This repository provides two main architectures:
 - Dual Graph Convolutional Network for spatial reasoning
 - Multi-task learning for road segmentation and orientation
 
-**2. DeepLabV3-MTL-Adapter**
-- DeepLabV3 with configurable backbone (default: ResNet101)
-- MTL Adapter for multi-task learning
-- Atrous Spatial Pyramid Pooling (ASPP)
-- Combined loss for segmentation and orientation prediction
+
 
 ### 6. Datasets Supported
 - **DeepGlobe**: Road extraction dataset from satellite imagery

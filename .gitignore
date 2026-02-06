@@ -2,62 +2,12 @@
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
 
-# Virtual environments
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Datasets
-Datasets/*/cropped_*/
-Datasets/*/train/
-Datasets/*/valid/
-Datasets/*/test/
-Datasets/*/hold/
-Datasets/*/tiff/
-
-# Experiments and outputs
-Experiments/*/
-*.log
-
-# Model checkpoints (if large)
-*.pth
-*.pt
-*.h5
-*.ckpt
-
-# Debug and test outputs
-sanity_debug/
-Test_Data/
-Theos/
-
-# OS
+# Mac
 .DS_Store
-Thumbs.db
-!Experiments/U_net_round21/model_best.pth.tar
+
+# Large Files / Datasets
+*.zip
+Experiments/
+Datasets/
+SSH file/

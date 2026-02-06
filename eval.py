@@ -61,22 +61,34 @@ def evaluate_model(ExperimentDirectory, model, dataset_name, nGPUs, cfg, train_l
             scaled_target_orientation_class = [_label.cuda() for _label in scaled_target_orientation_class]
             
             predictions = model(imageBGR)
-            predicted_road = [x for x in predictions[0]]
             predicted_orientation_class = [x for x in predictions[1]]
-            
-            if dataset_name == "Spacenet":
-                for ipr,resize_predicted_road in enumerate(predicted_road):
-                    predicted_road[ipr] = F.interpolate(resize_predicted_road, size=scaled_target_road_label[ipr].shape[-2:], mode='bilinear', align_corners=False)
-                for ipoc,resize_predicted_orientation_class in enumerate(predicted_orientation_class):
-                    predicted_orientation_class[ipoc] = F.interpolate(resize_predicted_orientation_class, size=scaled_target_orientation_class[ipoc].shape[-2:], mode='bilinear', align_corners=False)
-            
-            road_loss = segmentation_loss(predicted_road[0], scaled_target_road_label[0])
-            for r in range(1,len(predicted_road)):
-                road_loss += segmentation_loss(predicted_road[r], scaled_target_road_label[r])
+
+            # Always interpolate to match target size (Standard Segmentation Evaluation)
+            # Use the last (finest) label if we don't have enough multi-scale labels
+            for ipr,resize_predicted_road in enumerate(predicted_road):
+                target_idx = ipr if ipr < len(scaled_target_road_label) else -1
+                target_shape = scaled_target_road_label[target_idx].shape[-2:]
                 
-            angle_loss = orientation_loss(predicted_orientation_class[0], scaled_target_orientation_class[0])
-            for r in range(1,len(predicted_orientation_class)):
-                angle_loss += orientation_loss(predicted_orientation_class[r], scaled_target_orientation_class[r])
+                if resize_predicted_road.shape[-2:] != target_shape:
+                    predicted_road[ipr] = F.interpolate(resize_predicted_road, size=target_shape, mode='bilinear', align_corners=False)
+            
+            for ipoc,resize_predicted_orientation_class in enumerate(predicted_orientation_class):
+                target_idx = ipoc if ipoc < len(scaled_target_orientation_class) else -1
+                target_shape = scaled_target_orientation_class[target_idx].shape[-2:]
+                
+                if resize_predicted_orientation_class.shape[-2:] != target_shape:
+                    predicted_orientation_class[ipoc] = F.interpolate(resize_predicted_orientation_class, size=target_shape, mode='bilinear', align_corners=False)
+            
+            # Loss Calculation with safe indices
+            road_loss = 0
+            for r in range(len(predicted_road)):
+                target_idx = r if r < len(scaled_target_road_label) else -1
+                road_loss += segmentation_loss(predicted_road[r], scaled_target_road_label[target_idx])
+                
+            angle_loss = 0
+            for r in range(len(predicted_orientation_class)):
+                target_idx = r if r < len(scaled_target_orientation_class) else -1
+                angle_loss += orientation_loss(predicted_orientation_class[r], scaled_target_orientation_class[target_idx])
                 
             valid_loss_road += road_loss.item()
             valid_loss_angle += angle_loss.item()
@@ -162,24 +174,48 @@ def evaluate():
     Epochs = cfg["training_settings"]["epochs"]\
     
     # Models
+    # Dynamic loading using importlib
+    import importlib
     ModelFolderList = os.listdir(cfg["Models"]["base_dir"])
-    ModelNames = [os.path.splitext(x)[0] for x in ModelFolderList if ((os.path.splitext(x)[1] == ".py"))]
-    ModelNames.sort(key=str.lower)
-    ModuleNames = ["Unet", "test", "StackHourglassNetMTL_SPIN_PYRAMID", "SPIN_Roadmapper_Pyramid", "spin", "SPIN_Roadmapper", "ConvNeXt_UPerNet_DGCN_MTL"]
-    ModuleNames.sort(key=str.lower)
-    ModelModuleNames = list(map('.'.join, zip(ModelNames, ModuleNames)))
-    ModuleList = [eval(x) for x in ModelModuleNames]
-    ChosenModel = dict(zip(ModelNames, ModuleList))
+    ModelNames = [os.path.splitext(x)[0] for x in ModelFolderList if x.endswith(".py") and not x.startswith("__")]
+    ChosenModel = {}
+    for model_name in ModelNames:
+        try:
+            module = importlib.import_module(f"Models.{model_name}")
+            # Try to get the class with the same name as the file
+            if hasattr(module, model_name):
+                ChosenModel[model_name] = getattr(module, model_name)
+            else:
+                # Fallback: try to find any class in the module? Or just print warning
+                # Providing a way to match previous specific naming if needed, but usually ClassName == FileName
+                print(f"[Warning] Class '{model_name}' not found in Models/{model_name}.py. Skipping.")
+        except Exception as e:
+            print(f"[Error] Failed to import Models.{model_name}: {e}")
     
     # Datasets
     DatasetNames = os.listdir(cfg["Datasets"]["base_dir"])
+    # Filter out non-directories or hidden files if necessary, but original code just did listdir.
+    # Original logic assumes these names match classes in DatasetUtility.
     DatasetClassNames = list(map('.'.join, zip(["DatasetUtility"]*len(DatasetNames), DatasetNames)))
-    DatasetList = [eval(y) for y in DatasetClassNames]
-    ChosenDataset = dict(zip(DatasetNames, DatasetList))
+    # Use robust eval or getattr? 
+    # Since DatasetUtility IS imported at top, eval("DatasetUtility.DeepGlobe") works.
+    # To be safer/cleaner without eval: getattr(DatasetUtility, name)
+    DatasetList = []
+    for name in DatasetNames:
+        try:
+            DatasetList.append(getattr(DatasetUtility, name))
+        except AttributeError:
+            print(f"[Warning] Dataset class '{name}' not found in DatasetUtility. Skipping.")
+            DatasetList.append(None) # Handle gracefully? Original would crash.
+            
+    # Filter out Nones to avoid crash later
+    ValidNames = [n for n, d in zip(DatasetNames, DatasetList) if d is not None]
+    ValidLists = [d for d in DatasetList if d is not None]
+    ChosenDataset = dict(zip(ValidNames, ValidLists))
     
     parser = argparse.ArgumentParser()
-    parser.add_argument("-m", "--model", default='all', const='all', type=str, nargs='?', choices = ModelNames, help = ModelNames)
-    parser.add_argument("-d", "--dataset", default='all', const='all', type=str, nargs='?', choices = DatasetNames, help = DatasetNames)
+    parser.add_argument("-m", "--model", default='all', const='all', type=str, nargs='?', choices = list(ChosenModel.keys()), help = "Model Name")
+    parser.add_argument("-d", "--dataset", default='all', const='all', type=str, nargs='?', choices = ValidNames, help = "Dataset Name")
     parser.add_argument("-e", "--experiment", required=True, type=str, help = "Experiment Name")
     parser.add_argument("-r", "--resume", required=False, type=str, default=None, help="Most recent checkpoint (.pt) location (default: None)")
     args = parser.parse_args()

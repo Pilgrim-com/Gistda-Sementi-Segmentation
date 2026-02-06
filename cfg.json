@@ -1,69 +1,63 @@
 {
-	"Datasets":
-	{
+	"Datasets": {
 		"base_dir": "./Datasets/",
-		"DeepGlobe":
-		{
+		"DeepGlobe": {
 			"train_dir": "/Datasets/DeepGlobe/cropped_train/",
 			"train_label_dir": "/Datasets/DeepGlobe/cropped_train_labels/",
 			"valid_dir": "/Datasets/DeepGlobe/cropped_valid/",
 			"valid_label_dir": "/Datasets/DeepGlobe/cropped_valid_labels/",
 			"test_dir": "/Datasets/DeepGlobe/cropped_test/",
 			"hold_dir": "/Datasets/DeepGlobe/cropped_hold/",
-			"mean" : "[70.95016901, 71.16398124, 71.30953645]",
-			"std" : "[34.00087859, 35.18201658, 36.40463264]"
+			"mean": "[70.95016901, 71.16398124, 71.30953645]",
+			"std": "[34.00087859, 35.18201658, 36.40463264]"
 		},
-		"MassachusettsRoads":
-		{
+		"MassachusettsRoads": {
 			"train_dir": "/Datasets/MassachusettsRoads/tiff/train/",
 			"train_label_dir": "/Datasets/MassachusettsRoads/tiff/train_labels/",
 			"valid_dir": "/Datasets/MassachusettsRoads/tiff/val/",
 			"valid_label_dir": "/Datasets/MassachusettsRoads/tiff/val_labels/",
 			"test_dir": "/Datasets/MassachusettsRoads/tiff/test/",
 			"test_label_dir": "/Datasets/MassachusettsRoads/tiff/test_labels/",
-			"mean" : "[70.95016901, 71.16398124, 71.30953645]",
-			"std" : "[34.00087859, 35.18201658, 36.40463264]"
+			"mean": "[70.95016901, 71.16398124, 71.30953645]",
+			"std": "[34.00087859, 35.18201658, 36.40463264]"
 		},
-		"Spacenet":
-		{
+		"Spacenet": {
 			"train_dir": "/Datasets/Spacenet/cropped_train/",
 			"train_label_dir": "/Datasets/Spacenet/cropped_train_labels/",
 			"valid_dir": "/Datasets/Spacenet/cropped_valid/",
 			"valid_label_dir": "/Datasets/Spacenet/cropped_valid_labels/",
 			"test_dir": "/Datasets/Spacenet/cropped_test/",
-			"mean" : "[70.95016901, 71.16398124, 71.30953645]",
-			"std" : "[34.00087859, 35.18201658, 36.40463264]"
+			"mean": "[70.95016901, 71.16398124, 71.30953645]",
+			"std": "[34.00087859, 35.18201658, 36.40463264]"
 		}
 	},
-	"Models":
-	{
+	"Models": {
 		"base_dir": "./Models/",
-		"scales" : "[4, 2, 1]",
-		"smooth" : "[1, 2, 4]"
+		"scales": "[1]",
+		"smooth": "[1]"
 	},
-	"training_settings":
-	{
+	"training_settings": {
 		"batch_size": 4,
-		"crop_size" : 512,
-        "epochs": 100,
-        "results_directory": "./Experiments/",
+		"crop_size": 512,
+		"epochs": 100,
+		"results_directory": "./Experiments/",
 		"augment": true,
-        "iteration_size": 1,
-		"roadclass" : 2,
-		"orientationclass" : 37,
+		"iteration_size": 1,
+		"roadclass": 2,
+		"orientationclass": 37,
 		"road_weight": 1,
 		"road_binary_thresh": 0.76,
-		"orientation_weight": 1,
-        "iteration_frequency": 2
-    },
-	"validation_settings": 
-	{
-		"batch_size": 4,
-		"crop_size" : 512,
+		"orientation_weight": 0,
+		"iteration_frequency": 2
+	},
+	"validation_settings": {
+		"batch_size": 1,
+		"crop_size": 512,
 		"augment": false,
-		"spacenet_crop_size" : 650,
-        "evaluation_frequency": 4
-    },
+		"eval_original_size": true,
+		"spacenet_crop_size": 650,
+		"evaluation_frequency": 4
+	},
 	"optimizer_settings": {
 		"learning_rate": 0.001,
 		"learning_rate_decay": 0.001,
@@ -72,8 +66,5 @@
 		"learning_rate_step": 0.1
 	},
 	"use_combined_loss": true,
-	"GlobalSeed" : 42,
-	"deeplab_backbone": "resnet101",
-	"deeplab_pretrained_backbone": true,
-	"deeplab_output_stride": 16             
+	"GlobalSeed": 42
 }

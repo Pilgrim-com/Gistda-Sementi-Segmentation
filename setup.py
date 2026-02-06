@@ -42,11 +42,13 @@ import os
 import time
 import numpy as np
 from sklearn.model_selection import train_test_split
-from osgeo import gdal
+try:
+    from osgeo import gdal
+except ImportError:
+    gdal = None
+    print("[WARNING] 'osgeo' module not found. Spacenet dataset processing will not work.")
 import random
 import argparse
-import torch
-import torch.nn as nn
 from tqdm import tqdm
 tqdm.monitor_interval = 0
 import cv2
@@ -76,13 +78,13 @@ def CroppingProcedure(FileNames,BadImages, DatasetName, FolderPath, CroppedFolde
                 if image is None:
                     BadImages.append(FilePath)
                     continue
-                CroppingImage(image, FileName, CroppedFolderPath, DatasetName, OverlapRatio, CropSize)
+                CroppingImage(image, FileName, CroppedFolderPath, DatasetName, OverlapRatio, CropSize, DataType)
             elif ("mask" in FileName):
                 mask = cv2.imread(FilePath)
                 if mask is None:
                     BadImages.append(FilePath)
                     continue
-                CroppingImage(mask, FileName, CroppedFolderPath, DatasetName, OverlapRatio, CropSize)
+                CroppingImage(mask, FileName, CroppedFolderPath, DatasetName, OverlapRatio, CropSize, DataType)
                 
         elif ("MassachusettsRoads" in DatasetName):
             image = cv2.imread(FilePath)
@@ -128,16 +130,26 @@ def CroppingProcedure(FileNames,BadImages, DatasetName, FolderPath, CroppedFolde
                     BadImages.append(FilePath)
                     continue
                 
-                CroppingImage(image, FileName, CroppedFolderPath, DatasetName, OverlapRatio, CropSize)
+                CroppingImage(image, FileName, CroppedFolderPath, DatasetName, OverlapRatio, CropSize, DataType)
                 image_gd = None
             elif ("labels" in FolderPath):
                 mask = cv2.imread(FilePath)
                 FileNameNoExt = os.path.splitext(FileName)[0]
                 if ((FileNameNoExt + ".tif" in [os.path.basename(bFileName) for bFileName in BadImages]) or (mask is None)):
                     continue
-                CroppingImage(mask, FileName, CroppedFolderPath, DatasetName, OverlapRatio, CropSize)
+                CroppingImage(mask, FileName, CroppedFolderPath, DatasetName, OverlapRatio, CropSize, DataType)
 
-def CroppingImage(img, FileName, CroppedPath, DatasetName, OverlapRatio, CropSize):
+def CroppingImage(img, FileName, CroppedPath, DatasetName, OverlapRatio, CropSize, DataType=""):
+    # START MODIFICATION: Skip cropping for Validation set (Keep Full Resolution)
+    if "Validation" in DataType:
+        FileNameNoExtension = os.path.splitext(FileName)[0]
+        # DEBUG
+        # print(f"[DEBUG] Processing Full Validation Image: {FileNameNoExtension}.png")
+        # Save as original name (or with simple extension)
+        cv2.imwrite(os.path.join(CroppedPath,"{}.png".format(FileNameNoExtension)), img, [int(cv2.IMWRITE_PNG_COMPRESSION), 1])
+        return
+    # END MODIFICATION
+
     Rows,Cols,Channels = img.shape
     RowTiles = np.ceil(np.divide(Rows,CropSize)) 
     ColTiles = np.ceil(np.divide(Cols,CropSize))
