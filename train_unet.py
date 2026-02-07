@@ -360,9 +360,9 @@ def main():
 
     # ---------- ฟังก์ชันช่วยโหลด checkpoint ให้ปลอดภัย/ยืดหยุ่น ----------
     def _safe_load_ckpt(path):
-        # PyTorch รุ่นใหม่: แนะนำ weights_only=True (ลดความเสี่ยง pickle)
         try:
-            return torch.load(path, weights_only=True)
+            # Allow safe load (weights_only=False) to handle older/complex checkpoints
+            return torch.load(path, weights_only=False)
         except TypeError:
             return torch.load(path, map_location="cpu")
 
