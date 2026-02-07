@@ -54,14 +54,35 @@ def evaluate_model(ExperimentDirectory, model, dataset_name, nGPUs, cfg, train_l
         for i, ImageLabelData in enumerate(valid_loader, 0):
             imageBGR, scaled_target_road_label, scaled_target_orientation_class = ImageLabelData
 
+            # inputs
             imageBGR = imageBGR.float().cuda()
-            imageBGR.requires_grad = False
-            
             scaled_target_road_label = [_label.cuda() for _label in scaled_target_road_label]
             scaled_target_orientation_class = [_label.cuda() for _label in scaled_target_orientation_class]
+
+            # Forward pass
+            outputs = model(imageBGR)
             
-            predictions = model(imageBGR)
-            predicted_orientation_class = [x for x in predictions[1]]
+            # Handle Deep Supervision (Model returns [list_road, list_angle]) or Single Output
+            if isinstance(outputs, (list, tuple)):
+                predicted_road_list = outputs[0]
+                predicted_orient_list = outputs[1]
+                
+                # Check if road output is list (Deep Supervision) or tensor
+                if isinstance(predicted_road_list, (list, tuple)):
+                    predicted_road = predicted_road_list
+                else:
+                    predicted_road = [predicted_road_list]
+
+                # Check if orientation output is list or tensor
+                if isinstance(predicted_orient_list, (list, tuple)):
+                    predicted_orientation_class = predicted_orient_list
+                else:
+                    predicted_orientation_class = [predicted_orient_list]
+            else:
+                # Old model style (single output)
+                predicted_road = [outputs]
+                predicted_orientation_class = [None]
+            
 
             # Always interpolate to match target size (Standard Segmentation Evaluation)
             # Use the last (finest) label if we don't have enough multi-scale labels
@@ -241,7 +262,11 @@ def evaluate():
                               weight_decay = cfg["optimizer_settings"]["learning_rate_decay"])
 
     if args.resume is not None:
-        checkpoint = torch.load(args.resume)
+        try:
+            checkpoint = torch.load(args.resume, weights_only=False)
+        except TypeError: # For older PyTorch versions that doesn't support weights_only arg
+            checkpoint = torch.load(args.resume)
+            
         model.load_state_dict(checkpoint["state_dict"])
         Optimizer.load_state_dict(checkpoint["optimizer"])
         resume_at_epoch = checkpoint["epoch"] + 1
@@ -284,8 +309,8 @@ def evaluate():
     
     train_file_angle = "{}/{}_train_angle_loss.txt".format(ExperimentDirectory, args.dataset)
     valid_file_angle = "{}/{}_valid_angle_loss.txt".format(ExperimentDirectory, args.dataset)
-    train_loss_angle_file = open(train_file_angle, "rb")
-    valid_loss_angle_file = open(valid_file_angle, "rb")
+    train_loss_angle_file = open(train_file_angle, "w")
+    valid_loss_angle_file = open(valid_file_angle, "w")
     
     for Epoch in range(0, 1):
         start_time = time.perf_counter()
