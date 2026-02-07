@@ -267,10 +267,17 @@ def evaluate():
         except TypeError: # For older PyTorch versions that doesn't support weights_only arg
             checkpoint = torch.load(args.resume)
             
-        model.load_state_dict(checkpoint["state_dict"])
-        Optimizer.load_state_dict(checkpoint["optimizer"])
-        resume_at_epoch = checkpoint["epoch"] + 1
-        epoch_with_best_miou = checkpoint["miou"]
+        if "state_dict" in checkpoint:
+            model.load_state_dict(checkpoint["state_dict"])
+            Optimizer.load_state_dict(checkpoint["optimizer"])
+            resume_at_epoch = checkpoint["epoch"] + 1
+            epoch_with_best_miou = checkpoint["miou"]
+        else:
+            # Assume it's a raw state_dict (pre-trained weights only)
+            print("[INFO] Loading raw state_dict (weights only)...")
+            model.load_state_dict(checkpoint, strict=False)
+            resume_at_epoch = 1
+            epoch_with_best_miou = 0.0
     else:
         resume_at_epoch = 1
         np.random.seed(Seed)
