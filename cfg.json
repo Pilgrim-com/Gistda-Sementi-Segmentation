@@ -39,7 +39,7 @@
 	"training_settings": {
 		"batch_size": 4,
 		"crop_size": 512,
-		"epochs": 100,
+		"epochs": 300,
 		"results_directory": "./Experiments/",
 		"augment": true,
 		"iteration_size": 1,
@@ -62,8 +62,8 @@
 		"learning_rate": 0.001,
 		"learning_rate_decay": 0.001,
 		"warmup_epochs": 5,
-		"learning_rate_drop_at_epoch": "[25, 40, 55]",
-		"learning_rate_step": 0.1
+		"learning_rate_drop_at_epoch": "[50, 100, 150, 200, 250]",
+		"learning_rate_step": 0.5
 	},
 	"use_combined_loss": true,
 	"GlobalSeed": 42
