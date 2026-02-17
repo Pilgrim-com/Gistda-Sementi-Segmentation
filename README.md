@@ -14,19 +14,11 @@ Based on research presented at IEEE IGARSS 2023. Paper: [Graph Reasoned Multi-Sc
 
 ### 1. Dataset Instructions
 Download: <br>
-[DeepGlobe](https://www.kaggle.com/datasets/balraj98/deepglobe-road-extraction-dataset) (Kaggle account required), <br> 
-[MassachusettsRoads](https://www.kaggle.com/datasets/balraj98/massachusetts-roads-dataset) (Kaggle account required), <br>
-[Spacenet](https://spacenet.ai/spacenet-roads-dataset/) (AWS account required).
+[DeepGlobe](https://www.kaggle.com/datasets/balraj98/deepglobe-road-extraction-dataset) (Kaggle account required).<br> 
 
-Once you download either the DeepGlobe or the Massachusetts Roads datasets, extract their contents into a "DeepGlobe" or "MassachusettsRoads" folder respectively in the Datasets folder.<br>
+Once you download the DeepGlobe dataset, extract its contents into a "DeepGlobe" folder in the Datasets folder.<br>
 
-<details> 
-  <summary>For Spacenet, the procedure is a bit more involved... </summary>
-  
-   <br> We need the images in 8-bit format.<br> After downloading AOIs 2-5 (Vegas, Paris, Shanghai, Khartoum), go to the [CRESI](https://github.com/avanetten/cresi) repository and select "SpaceNet 5 Baseline Part 1 - Data Prep".<br> Use [create_8bit_masks.py](https://github.com/avanetten/cresi/blob/main/cresi/data_prep/create_8bit_images.py) as described in the link. Then use [speed_masks.py](https://github.com/avanetten/cresi/blob/main/cresi/data_prep/speed_masks.py) to create continuous masks. Binarize these masks between [0,1] and place them in ```/Datasets/Spacenet/trainval_labels/train_masks/```
 
-Next, locate the ```"PS-MS"``` folder in each corresponding ```AOI_#_<city>``` directory. <br>Move all image files in each of these "PS-MS" folders to ```/Datasets/Spacenet/trainval/```. <br>Like-wise, locate the ```"MUL-PanSharpen"``` folder in each corresponding ```AOI_#_<city>_Roads_Test_Public``` directory and move all of these image files to ```/Datasets/Spacenet/test/``` 
-</details>
 
 ### 2. Setup
 
@@ -41,7 +33,7 @@ Install dependencies from conda:<br>
 Now we will create our cropped images for each train/val/test part (where applicable) of a chosen Dataset.<br>
 In the console enter: ```python setup.py -d Datasets -cs 512 -j <name of dataset>``` (-cs is the crop-size)<br>
 The dataset name should be identical to the ones in the Dataset Instructions section. Wait approximately ~15 minutes.<br><br>
-Cropped Image Disk Space:<br> DeepGlobe ~= 24.3GB<br> MassachusettsRoads ~= 9.71GB<br> Spacenet ~= 25GB<br>
+Cropped Image Disk Space:<br> DeepGlobe ~= 24.3GB<br>
 
 ### 3. Training
 
@@ -66,7 +58,7 @@ To resume training:<br>
 
 To fine-tune a pre-trained model on a new dataset:<br>
 ```python train_unet.py -m ConvNeXt_UPerNet_DGCN_MTL -d <dataset_name> -e <experiment_name> -rd ./Experiments/<experiment_name>/model_best.pth.tar```<br><br>
-For example, one can use pre-trained MassachusettsRoads model weights to start training for DeepGlobe or Spacenet to speed up convergence.
+
 
 #### Configuration
 
@@ -79,11 +71,15 @@ Once training ends (Default: 100 epochs in cfg.json), to evaluate Precision, Rec
 For U-Net model:<br>
 ```python eval.py -m ConvNeXt_UPerNet_DGCN_MTL -d <dataset_name> -e <experiment_name> -r ./Experiments/<experiment_name>/model_best.pth.tar```
 
+**Metrics Explanation:**
+- **IoU (Standard)**: The standard intersection-over-union metric. It uses a **0.5 probability threshold** (argmax) to determine the class of each pixel (Road vs Background).
+- **IoU (Relaxed) / IoU-r**: A topology-aware metric designed for road extraction. It skeletonizes both the ground truth and the prediction to a **1px width** and tolerates spatial misalignment within a **±4 pixel buffer**. This metric focuses on the correctness of the road network topology rather than pixel-perfect alignment.
+
 
 
 The evaluation script uses elements from the utils folder of [[3]](https://github.com/anilbatra2185/road_connectivity/tree/master/utils).
   
-This will create a ```./Experiments/<experiment_name>/images_eval``` folder with each file showing (clock-wise) the original image, its label, a feature heat-map and the stitched prediction. Note, that for MassachusettsRoads, use a validation setting batch_size of 3 (cfg.json) when creating the images.
+This will create a ```./Experiments/<experiment_name>/images_eval``` folder with each file showing (clock-wise) the original image, its label, a feature heat-map and the stitched prediction.
   
 To evaluate the [APLS](https://github.com/avanetten/apls) metric refer to this [link](https://github.com/anilbatra2185/road_connectivity/issues/13).
   
@@ -101,8 +97,6 @@ This repository provides two main architectures:
 
 ### 6. Datasets Supported
 - **DeepGlobe**: Road extraction dataset from satellite imagery
-- **MassachusettsRoads**: Road dataset from aerial imagery
-- **SpaceNet**: Multi-city road network dataset
 
 ### 7. Original Research Results
 Results from the original U-Net implementation. You may also refer to this [link](https://github.com/aavek/Satellite-Image-Road-Segmentation/blob/main/docs/IGARSS_Vekinis_2023_ea.pdf) for better viewing.
